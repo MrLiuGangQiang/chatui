@@ -5,6 +5,10 @@ async function getRanking(usageStats, range) {
   return usageStats.getRanking(range);
 }
 
+async function getUserUsageByName(usageStats, username, range) {
+  return usageStats.getUserUsageByName(username, range);
+}
+
 async function getPersonalRange(usageStats, apiKey, range) {
   return usageStats.getPersonalRange(apiKey, range);
 }
@@ -62,6 +66,7 @@ module.exports = {
   getOverview,
   getPersonalRange,
   getUserByApiKey,
+  getUserUsageByName,
   getRanking,
   groupUsersByDepartment,
 };

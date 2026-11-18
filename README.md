@@ -151,7 +151,7 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
 - 前端采用懒加载：打开弹窗只查当前范围，切换到哪个范围才查询哪个范围，已查询数据会在前端缓存。
 - 后端使用独立 PostgreSQL 连接池，连接串、连接池大小、超时和 SSL 均通过环境变量配置。
 - 统计模块与聊天、图片、附件和 OpenAI 代理解耦，独立路由为 `/api/usage/*`。
-- 可通过无状态的 `/api/mcp` MCP 接口，用用户 API Key 从外部 MCP 客户端查询个人用量、排行榜、部门统计、导出 XLSX 并提交问题反馈。
+- 可通过无状态的 `/api/mcp` MCP 接口，用用户 API Key 从外部 MCP 客户端查询个人用量、排行榜、按姓名查询用户聚合用量、部门统计、导出 XLSX 并提交问题反馈。
 
 ### 公告中心
 
@@ -893,13 +893,14 @@ ChatUI 在 `/api/mcp` 提供无状态 Streamable HTTP MCP JSON-RPC 2.0 服务，
 | `usage_get_overview` | 同时获取当前用户个人用量和用户排行榜，可分别指定统计范围 |
 | `usage_get_personal` | 获取当前用户指定范围的完整 token 用量 |
 | `usage_get_rankings` | 获取指定范围的用户 token 用量排行榜 |
+| `usage_get_user_by_name` | 按完整用户名精确查询指定范围的用户聚合用量，需提供 `username` |
 | `usage_get_department_summary` | 获取部门统计概览与部门排行 |
 | `usage_get_department_ranking` | 获取部门排行 |
 | `usage_get_department_users` | 获取指定部门的用户用量明细，需提供 `department_id` |
 | `usage_export_department` | 导出部门及部门用户 XLSX，以 embedded resource/base64 返回，最大 8 MiB |
 | `usage_submit_feedback` | 提交包含问题描述、复现描述和期望结果的问题反馈，服务端先审核再投递 |
 
-统计范围支持 `today`、`yesterday`、`week`、`last_week`、`month`、`last_month`、`total`；MCP 部门工具直接使用当前用户 API Key，不要求部门密码。反馈默认使用当前 API Key 可用模型中的服务端推荐模型，可用 `CHATUI_MCP_FEEDBACK_MODEL` 指定首选值，也允许调用方通过 `chat_model` 显式选择；审核通过前不会解析反馈用户名或投递到 DingTalk。
+统计范围支持 `today`、`yesterday`、`week`、`last_week`、`month`、`last_month`、`total`；按姓名查询不区分大小写，只返回与排行榜同级的聚合指标，未找到时返回 `found:false`。MCP 部门工具直接使用当前用户 API Key，不要求部门密码。反馈默认使用当前 API Key 可用模型中的服务端推荐模型，可用 `CHATUI_MCP_FEEDBACK_MODEL` 指定首选值，也允许调用方通过 `chat_model` 显式选择；审核通过前不会解析反馈用户名或投递到 DingTalk。
 
 本接口是 ChatUI 对外提供的入站 MCP 服务，与下文“HTTP / MCP 插件”中由 ChatUI 主动出站调用的远程 MCP 插件是不同功能，不能混用配置或凭据。
 

@@ -145,6 +145,41 @@ async function testUsageRepositoryUsesBoundParametersAndNormalizesTokenRows() {
   await assert.rejects(repository.getRanking('invalid'), /Unsupported usage range/);
 }
 
+async function testUsageRepositoryFindsAggregateUsageByExactName() {
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      return {
+        rows: [{
+          username: 'Alice',
+          total_tokens: '21',
+          prompt_tokens: '12',
+          completion_tokens: '9',
+          prompt_cached_tokens: '3',
+          completion_reasoning_tokens: '2',
+        }],
+      };
+    },
+  };
+  const repository = createUsageStatsRepository(pool);
+  assert.deepStrictEqual(await repository.getUserUsageByName(' Alice ', 'last_month'), {
+    username: 'Alice',
+    total_tokens: 21,
+    prompt_tokens: 12,
+    completion_tokens: 9,
+    prompt_cached_tokens: 3,
+    completion_reasoning_tokens: 2,
+  });
+  assert.deepStrictEqual(calls[0].params, ['Alice']);
+  assert.match(calls[0].sql, /LEFT JOIN usage_logs ul ON ul\.api_key_id = ak\.id/);
+  assert.match(calls[0].sql, /LOWER\(BTRIM\(COALESCE\(ak\.name, ''\)\)\) = LOWER\(BTRIM\(\$1\)\)/);
+
+  pool.query = async () => ({ rows: [{ username: '', total_tokens: '0' }] });
+  assert.strictEqual(await repository.getUserUsageByName('不存在', 'today'), null);
+  await assert.rejects(repository.getUserUsageByName('Alice', 'invalid'), /Unsupported usage range/);
+}
+
 async function testUsageRepositoryCoversPersonalDepartmentAndRangeQueries() {
   const calls = [];
   const responses = [
@@ -180,5 +215,6 @@ module.exports = [
   testUsageAccessValidatorMapsUpstreamDenialModelMismatchAndOutage,
   testUsageAccessValidatorValidatesBearerWithoutModelAndCachesModels,
   testUsageRepositoryUsesBoundParametersAndNormalizesTokenRows,
+  testUsageRepositoryFindsAggregateUsageByExactName,
   testUsageRepositoryCoversPersonalDepartmentAndRangeQueries,
 ];

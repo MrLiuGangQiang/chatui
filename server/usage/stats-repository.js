@@ -76,6 +76,22 @@ function createUsageStatsRepository(pool, options = {}) {
     return result.rows.map(normalizeTokenRow);
   }
 
+  async function getUserUsageByName(username, range) {
+    const filter = RANGE_FILTERS[range];
+    if (!filter) throw new Error(`Unsupported usage range: ${range}`);
+    const sql = `
+      SELECT
+        COALESCE(MAX(ak.name), '') AS username,
+        ${TOKEN_COLUMNS}
+      FROM api_keys ak
+      LEFT JOIN usage_logs ul ON ul.api_key_id = ak.id AND ${filter}
+      WHERE LOWER(BTRIM(COALESCE(ak.name, ''))) = LOWER(BTRIM($1))
+    `;
+    const result = await pool.query(sql, [String(username || '').trim()]);
+    const row = normalizeTokenRow(result.rows[0]);
+    return row.username ? row : null;
+  }
+
   async function getPersonalRange(apiKey, range) {
     const filter = RANGE_FILTERS[range];
     if (!filter) throw new Error(`Unsupported usage range: ${range}`);
@@ -156,7 +172,7 @@ function createUsageStatsRepository(pool, options = {}) {
     return normalizeRangeBounds(result.rows[0]);
   }
 
-  return { getRanking, getPersonalRange, getUserByApiKey, getDepartmentRanking, getDepartmentUsers, getAllDepartmentUsers, getDepartmentRangeBounds };
+  return { getRanking, getUserUsageByName, getPersonalRange, getUserByApiKey, getDepartmentRanking, getDepartmentUsers, getAllDepartmentUsers, getDepartmentRangeBounds };
 }
 
 module.exports = { createUsageStatsRepository };

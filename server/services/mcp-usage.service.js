@@ -149,6 +149,15 @@ function createMcpUsageService({
         const ranking = await usageService.getRanking(stats, range);
         return { available: true, range, ranking };
       }
+      case 'usage_get_user_by_name': {
+        enforceRateLimit(checkRateLimit, 'user', context);
+        const stats = requireUsageStats(usageStats);
+        const range = requireRange(args.range);
+        const username = String(args.username || '').trim();
+        if (!username) throw toolError('缺少 username，请提供要查询的完整用户名', 'MCP_USERNAME_REQUIRED');
+        const user = await usageService.getUserUsageByName(stats, username, range);
+        return { available: true, found: !!user, range, username, user: user || null };
+      }
       case 'usage_get_department_summary': {
         enforceRateLimit(checkRateLimit, 'department', context);
         const stats = requireUsageStats(usageStats);

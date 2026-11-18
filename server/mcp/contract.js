@@ -6,7 +6,7 @@ const MCP_PROTOCOL_VERSION = '2025-06-18';
 const SUPPORTED_PROTOCOL_VERSIONS = Object.freeze(['2025-06-18', '2025-03-26', '2024-11-05']);
 const SERVER_NAME = 'chatui-usage';
 const SERVER_TITLE = 'ChatUI 用量统计与问题反馈';
-const SERVER_INSTRUCTIONS = '所有工具都使用当前连接的用户 API Key 鉴权。统计范围支持今日、昨日、本周、上周、本月、上月和全部时间；部门统计工具直接使用该 API Key 授权。提交反馈前先收集问题描述、复现描述和期望结果。';
+const SERVER_INSTRUCTIONS = '所有工具都使用当前连接的用户 API Key 鉴权。统计范围支持今日、昨日、本周、上周、本月、上月和全部时间；部门统计工具直接使用该 API Key 授权。可按用户名精确查询其他用户的聚合用量。提交反馈前先收集问题描述、复现描述和期望结果。';
 
 const RANGE_DESCRIPTION = '统计范围，默认 today。可选值：' + PERSONAL_RANGES.map(range => `${range}（${rangeLabel(range).replace('排行', '')}）`).join('、');
 const READ_ANNOTATIONS = Object.freeze({
@@ -55,6 +55,26 @@ const TOOLS = Object.freeze([
     inputSchema: Object.freeze({
       type: 'object',
       properties: Object.freeze({ range: RANGE_SCHEMA }),
+      additionalProperties: false,
+    }),
+    annotations: READ_ANNOTATIONS,
+  }),
+  Object.freeze({
+    name: 'usage_get_user_by_name',
+    title: '按姓名查询用户用量',
+    description: '按用户名精确查询指定统计范围内该用户的聚合 token 用量。姓名不区分大小写，仅返回与排行榜相同的聚合指标。',
+    inputSchema: Object.freeze({
+      type: 'object',
+      properties: Object.freeze({
+        username: Object.freeze({
+          type: 'string',
+          minLength: 1,
+          maxLength: 200,
+          description: '要查询的完整用户名。',
+        }),
+        range: RANGE_SCHEMA,
+      }),
+      required: Object.freeze(['username']),
       additionalProperties: false,
     }),
     annotations: READ_ANNOTATIONS,

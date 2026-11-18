@@ -145,11 +145,12 @@ async function testMcpInitializeAndToolsListExposeCompleteUsageSurface() {
 
   const listed = await invokeMcp({ jsonrpc: '2.0', id: 'list-1', method: 'tools/list', params: {} });
   const tools = listed.json.result.tools;
-  assert.strictEqual(tools.length, 8);
+  assert.strictEqual(tools.length, 9);
   assert.deepStrictEqual(tools.map(tool => tool.name), [
     'usage_get_overview',
     'usage_get_personal',
     'usage_get_rankings',
+    'usage_get_user_by_name',
     'usage_get_department_summary',
     'usage_get_department_ranking',
     'usage_get_department_users',
@@ -178,9 +179,14 @@ async function testMcpUsageToolsReusePersonalAndRankingServices() {
     completion_reasoning_tokens: 7,
   };
   const ranking = [{ username: '测试用户', total_tokens: 321 }];
+  const namedUser = { ...personal, total_tokens: 654 };
   const usageStats = {
     async getUserByApiKey() { return { username: '测试用户' }; },
     async getRanking(range) { calls.push(['ranking', range]); return ranking; },
+    async getUserUsageByName(username, range) {
+      calls.push(['user-by-name', username, range]);
+      return username === '测试用户' ? namedUser : null;
+    },
     async getPersonalRange(apiKey, range) { calls.push(['personal', apiKey, range]); return personal; },
   };
   const options = { ...authOptions(), usageStats };
@@ -216,6 +222,30 @@ async function testMcpUsageToolsReusePersonalAndRankingServices() {
   }, options);
   assert.deepStrictEqual(JSON.parse(toolText(rankingResult)).ranking, ranking);
   assert.deepStrictEqual(calls, [['ranking', 'total']]);
+
+  calls.length = 0;
+  const namedResult = await invokeMcp({
+    jsonrpc: '2.0',
+    id: 13,
+    method: 'tools/call',
+    params: { name: 'usage_get_user_by_name', arguments: { username: ' 测试用户 ', range: 'week' } },
+  }, options);
+  const namedData = JSON.parse(toolText(namedResult));
+  assert.strictEqual(namedData.found, true);
+  assert.deepStrictEqual(namedData.user, namedUser);
+  assert.deepStrictEqual(calls, [['user-by-name', '测试用户', 'week']]);
+
+  calls.length = 0;
+  const missingNamedUser = await invokeMcp({
+    jsonrpc: '2.0',
+    id: 14,
+    method: 'tools/call',
+    params: { name: 'usage_get_user_by_name', arguments: { username: '不存在', range: 'month' } },
+  }, options);
+  const missingData = JSON.parse(toolText(missingNamedUser));
+  assert.strictEqual(missingData.found, false);
+  assert.strictEqual(missingData.user, null);
+  assert.deepStrictEqual(calls, [['user-by-name', '不存在', 'month']]);
 }
 
 async function testMcpJsonRpcNotificationsErrorsAndCallSemantics() {
@@ -242,6 +272,14 @@ async function testMcpJsonRpcNotificationsErrorsAndCallSemantics() {
     params: { name: 'usage_get_rankings', arguments: { range: 'quarter' } },
   });
   assert.strictEqual(invalidArguments.json.error.code, -32602);
+
+  const missingUsername = await invokeMcp({
+    jsonrpc: '2.0',
+    id: 25,
+    method: 'tools/call',
+    params: { name: 'usage_get_user_by_name', arguments: { range: 'today' } },
+  });
+  assert.strictEqual(missingUsername.json.error.code, -32602);
 
   const batch = await invokeMcp([
     { jsonrpc: '2.0', id: 23, method: 'ping', params: {} },

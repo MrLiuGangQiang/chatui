@@ -180,6 +180,43 @@ async function testUsageRepositoryFindsAggregateUsageByExactName() {
   await assert.rejects(repository.getUserUsageByName('Alice', 'invalid'), /Unsupported usage range/);
 }
 
+async function testUsageRepositoryFindsDepartmentAggregateByExactName() {
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      return {
+        rows: [{
+          department_id: 7,
+          department_name: '研发部',
+          total_tokens: '31',
+          prompt_tokens: '19',
+          completion_tokens: '12',
+          prompt_cached_tokens: '4',
+          completion_reasoning_tokens: '3',
+        }],
+      };
+    },
+  };
+  const repository = createUsageStatsRepository(pool);
+  assert.deepStrictEqual(await repository.getDepartmentUsageByName(' 研发部 ', 'last_month'), [{
+    department_id: '7',
+    department_name: '研发部',
+    total_tokens: 31,
+    prompt_tokens: 19,
+    completion_tokens: 12,
+    prompt_cached_tokens: 4,
+    completion_reasoning_tokens: 3,
+  }]);
+  assert.deepStrictEqual(calls[0].params, ['研发部']);
+  assert.match(calls[0].sql, /LEFT JOIN usage_logs ul ON ul\.project_id = dept\.id/);
+  assert.match(calls[0].sql, /LOWER\(BTRIM\(COALESCE\(dept\.name, ''\)\)\) = LOWER\(BTRIM\(\$1\)\)/);
+
+  pool.query = async () => ({ rows: [] });
+  assert.deepStrictEqual(await repository.getDepartmentUsageByName('不存在', 'today'), []);
+  await assert.rejects(repository.getDepartmentUsageByName('研发部', 'invalid'), /Unsupported department usage range/);
+}
+
 async function testUsageRepositoryCoversPersonalDepartmentAndRangeQueries() {
   const calls = [];
   const responses = [
@@ -216,5 +253,6 @@ module.exports = [
   testUsageAccessValidatorValidatesBearerWithoutModelAndCachesModels,
   testUsageRepositoryUsesBoundParametersAndNormalizesTokenRows,
   testUsageRepositoryFindsAggregateUsageByExactName,
+  testUsageRepositoryFindsDepartmentAggregateByExactName,
   testUsageRepositoryCoversPersonalDepartmentAndRangeQueries,
 ];

@@ -153,7 +153,7 @@ npm test -- job-ownership job-routes server-hardening
 npm test -- mcp-usage usage-data-layer api-contract feedback-review
 ```
 
-该集合覆盖 header-only token、`X-API-Key`、body/query token 拒绝、CORS/no-store、JSON-RPC 生命周期、9 个工具、按姓名查询、无部门密码的部门统计、嵌入 XLSX、反馈审核顺序、日志脱敏和访问校验缓存。测试使用注入的统计/审核/投递依赖，不得访问真实上游、PostgreSQL 或 DingTalk。
+该集合覆盖 header-only token、`X-API-Key`、body/query token 拒绝、CORS/no-store、JSON-RPC 生命周期、10 个工具、按用户名和部门名查询、无部门密码的部门统计、嵌入 XLSX、反馈审核顺序、日志脱敏和访问校验缓存。测试使用注入的统计/审核/投递依赖，不得访问真实上游、PostgreSQL 或 DingTalk。
 
 本地服务仍使用 `http://127.0.0.1:8765`。初始化请求示例（`MCP-Protocol-Version` 在后续请求中应继续携带协商结果）：
 

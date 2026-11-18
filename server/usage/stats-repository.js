@@ -130,6 +130,24 @@ function createUsageStatsRepository(pool, options = {}) {
     return result.rows.map(normalizeDepartmentRow);
   }
 
+  async function getDepartmentUsageByName(departmentName, range) {
+    const filter = DEPARTMENT_RANGE_FILTERS[range];
+    if (!filter) throw new Error(`Unsupported department usage range: ${range}`);
+    const sql = `
+      SELECT
+        dept.id AS department_id,
+        COALESCE(dept.name, '') AS department_name,
+        ${TOKEN_COLUMNS}
+      FROM projects dept
+      LEFT JOIN usage_logs ul ON ul.project_id = dept.id AND ${filter}
+      WHERE LOWER(BTRIM(COALESCE(dept.name, ''))) = LOWER(BTRIM($1))
+      GROUP BY dept.id, dept.name
+      ORDER BY total_tokens DESC, dept.id
+    `;
+    const result = await pool.query(sql, [String(departmentName || '').trim()]);
+    return result.rows.map(normalizeDepartmentRow);
+  }
+
   async function getDepartmentUsers(departmentId, range) {
     const filter = DEPARTMENT_RANGE_FILTERS[range];
     if (!filter) throw new Error(`Unsupported department usage range: ${range}`);
@@ -172,7 +190,7 @@ function createUsageStatsRepository(pool, options = {}) {
     return normalizeRangeBounds(result.rows[0]);
   }
 
-  return { getRanking, getUserUsageByName, getPersonalRange, getUserByApiKey, getDepartmentRanking, getDepartmentUsers, getAllDepartmentUsers, getDepartmentRangeBounds };
+  return { getRanking, getUserUsageByName, getPersonalRange, getUserByApiKey, getDepartmentRanking, getDepartmentUsageByName, getDepartmentUsers, getAllDepartmentUsers, getDepartmentRangeBounds };
 }
 
 module.exports = { createUsageStatsRepository };

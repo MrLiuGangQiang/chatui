@@ -33,6 +33,14 @@ async function getDepartmentUsers(usageStats, departmentId, range) {
   return usageStats.getDepartmentUsers(departmentId, range);
 }
 
+async function getDepartmentUsageByName(usageStats, departmentName, range) {
+  const departments = await usageStats.getDepartmentUsageByName(departmentName, range);
+  return Promise.all(departments.map(async department => ({
+    ...department,
+    users: await usageStats.getDepartmentUsers(department.department_id, range),
+  })));
+}
+
 async function getDepartmentSummary(usageStats, range) {
   const ranking = await usageStats.getDepartmentRanking(range);
   return { ranking };
@@ -62,6 +70,7 @@ module.exports = {
   getDepartmentExportWorkbook,
   getDepartmentRanking,
   getDepartmentSummary,
+  getDepartmentUsageByName,
   getDepartmentUsers,
   getOverview,
   getPersonalRange,

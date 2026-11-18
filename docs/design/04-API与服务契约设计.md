@@ -64,11 +64,11 @@
 | 协议版本 | 支持 `2025-06-18`、`2025-03-26`、`2024-11-05`；请求头版本不支持时返回 HTTP 400 |
 | JSON-RPC 方法 | `initialize`、`notifications/initialized`、`ping`、`tools/list`、`tools/call` |
 | 鉴权 | 每个请求都先查 PostgreSQL `api_keys`，再以该 Key 调用上游 `/models`；任一步失败均失败关闭 |
-| 工具 | 概览、个人用量、用户排行榜、按姓名查询用户用量、部门统计概览、部门排行、部门用户、部门导出和问题反馈，共 9 个工具 |
+| 工具 | 概览、个人用量、用户排行榜、按姓名查询用户用量、部门统计概览、部门排行、部门用户、按部门名查询部门用量、部门导出和问题反馈，共 10 个工具 |
 | 业务失败 | HTTP 200 JSON-RPC 成功 envelope 内的 `result.isError:true`；错误消息只给可行动说明 |
 | HTTP 限制 | 请求体上限 1 MiB；所有响应 `Cache-Control: no-store` 并允许跨域读取；部门导出上限 8 MiB |
 
-工具 Schema 由 `server/mcp/contract.js` 唯一提供。统计范围与浏览器一致：`today`、`yesterday`、`week`、`last_week`、`month`、`last_month`、`total`。`usage_get_user_by_name` 使用完整 `username` 精确查询并只返回聚合指标；MCP 部门工具只依赖 API Key，不接收 `department_password`；导出以 MCP embedded resource 的 base64 blob 返回。`usage_submit_feedback` 使用 `problem_description`、`reproduction_description`、`expected_result` 三个必填字段，审核通过后才解析用户名并投递。
+工具 Schema 由 `server/mcp/contract.js` 唯一提供。统计范围与浏览器一致：`today`、`yesterday`、`week`、`last_week`、`month`、`last_month`、`total`。`usage_get_user_by_name` 使用完整 `username` 精确查询，`usage_get_department_by_name` 使用完整 `department_name` 精确查询，两者都只返回聚合指标；MCP 部门工具只依赖 API Key，不接收 `department_password`；导出以 MCP embedded resource 的 base64 blob 返回。`usage_submit_feedback` 使用 `problem_description`、`reproduction_description`、`expected_result` 三个必填字段，审核通过后才解析用户名并投递。
 
 `/api/mcp` 必须由路由在通用 `/api/*` proxy 之前单独分派，access-log 分类为 `mcp`，不得落到 OpenAI 兼容代理。详细设计见 `docs/design/32-MCP用量统计与问题反馈设计.md`。
 

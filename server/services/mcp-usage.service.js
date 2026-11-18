@@ -181,6 +181,15 @@ function createMcpUsageService({
         const users = await usageService.getDepartmentUsers(stats, departmentId, range);
         return { available: true, range, department_id: departmentId, users };
       }
+      case 'usage_get_department_by_name': {
+        enforceRateLimit(checkRateLimit, 'department', context);
+        const stats = requireUsageStats(usageStats);
+        const range = requireRange(args.range, true);
+        const departmentName = String(args.department_name || '').trim();
+        if (!departmentName) throw toolError('缺少 department_name，请提供要查询的完整部门名', 'MCP_DEPARTMENT_NAME_REQUIRED');
+        const departments = await usageService.getDepartmentUsageByName(stats, departmentName, range);
+        return { available: true, found: departments.length > 0, range, department_name: departmentName, departments };
+      }
       case 'usage_export_department': {
         enforceRateLimit(checkRateLimit, 'department', context);
         const stats = requireUsageStats(usageStats);

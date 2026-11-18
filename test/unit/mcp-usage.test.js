@@ -145,7 +145,7 @@ async function testMcpInitializeAndToolsListExposeCompleteUsageSurface() {
 
   const listed = await invokeMcp({ jsonrpc: '2.0', id: 'list-1', method: 'tools/list', params: {} });
   const tools = listed.json.result.tools;
-  assert.strictEqual(tools.length, 9);
+  assert.strictEqual(tools.length, 10);
   assert.deepStrictEqual(tools.map(tool => tool.name), [
     'usage_get_overview',
     'usage_get_personal',
@@ -154,12 +154,13 @@ async function testMcpInitializeAndToolsListExposeCompleteUsageSurface() {
     'usage_get_department_summary',
     'usage_get_department_ranking',
     'usage_get_department_users',
+    'usage_get_department_by_name',
     'usage_export_department',
     'usage_submit_feedback',
   ]);
   const rankingTool = tools.find(tool => tool.name === 'usage_get_rankings');
   assert.deepStrictEqual(rankingTool.inputSchema.properties.range.enum, PERSONAL_RANGES);
-  for (const name of ['usage_get_department_summary', 'usage_get_department_ranking', 'usage_get_department_users', 'usage_export_department']) {
+  for (const name of ['usage_get_department_summary', 'usage_get_department_ranking', 'usage_get_department_users', 'usage_get_department_by_name', 'usage_export_department']) {
     const tool = tools.find(item => item.name === name);
     assert.ok(tool, `${name} must be exposed`);
     assert.ok(!Object.prototype.hasOwnProperty.call(tool.inputSchema.properties, 'department_password'), `${name} must not accept department_password`);
@@ -281,6 +282,14 @@ async function testMcpJsonRpcNotificationsErrorsAndCallSemantics() {
   });
   assert.strictEqual(missingUsername.json.error.code, -32602);
 
+  const missingDepartmentName = await invokeMcp({
+    jsonrpc: '2.0',
+    id: 26,
+    method: 'tools/call',
+    params: { name: 'usage_get_department_by_name', arguments: { range: 'today' } },
+  });
+  assert.strictEqual(missingDepartmentName.json.error.code, -32602);
+
   const batch = await invokeMcp([
     { jsonrpc: '2.0', id: 23, method: 'ping', params: {} },
     { jsonrpc: '2.0', id: 24, method: 'tools/list', params: {} },
@@ -308,6 +317,10 @@ async function testMcpDepartmentToolsDoNotRequirePasswordAndExportXlsxResource()
     async getDepartmentUsers(departmentId, range) {
       calls.push(['users', departmentId, range]);
       return [{ username: '测试用户', total_tokens: 100 }];
+    },
+    async getDepartmentUsageByName(departmentName, range) {
+      calls.push(['department-by-name', departmentName, range]);
+      return [{ department_id: 'dept-1', department_name: '研发部', total_tokens: 100 }];
     },
     async getAllDepartmentUsers(range) {
       calls.push(['all-users', range]);
@@ -340,6 +353,15 @@ async function testMcpDepartmentToolsDoNotRequirePasswordAndExportXlsxResource()
   }, options);
   assert.strictEqual(JSON.parse(toolText(users)).users[0].username, '测试用户');
 
+  const departmentByName = await invokeMcp({
+    jsonrpc: '2.0', id: 36, method: 'tools/call',
+    params: { name: 'usage_get_department_by_name', arguments: { department_name: ' 研发部 ', range: 'week' } },
+  }, options);
+  const departmentByNameData = JSON.parse(toolText(departmentByName));
+  assert.strictEqual(departmentByNameData.found, true);
+  assert.strictEqual(departmentByNameData.departments[0].department_name, '研发部');
+  assert.strictEqual(departmentByNameData.departments[0].users[0].username, '测试用户');
+
   const exported = await invokeMcp({
     jsonrpc: '2.0', id: 33, method: 'tools/call',
     params: { name: 'usage_export_department', arguments: { range: 'today' } },
@@ -352,6 +374,8 @@ async function testMcpDepartmentToolsDoNotRequirePasswordAndExportXlsxResource()
     ['ranking', 'week'],
     ['ranking', 'month'],
     ['users', 'dept-1', 'month'],
+    ['department-by-name', '研发部', 'week'],
+    ['users', 'dept-1', 'week'],
     ['ranking', 'today'],
     ['all-users', 'today'],
     ['bounds', 'today'],

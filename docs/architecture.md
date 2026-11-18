@@ -215,7 +215,7 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 - `server/usage/`：使用统计 SQL、查询结果规范化和工作簿输出；
 - `server/api/controllers/usage.controller.js`：使用统计 HTTP 契约；
 - `server/services/usage*.js`：用例和访问控制；`validateKey(apiKey)` 只校验用户 Key 并有界返回可用模型，供入站 MCP 认证使用；
-- `server/mcp/contract.js`：入站 MCP 协议版本、服务器指令、9 个工具 Schema 与结果投影的唯一事实源；
+- `server/mcp/contract.js`：入站 MCP 协议版本、服务器指令、10 个工具 Schema 与结果投影的唯一事实源；
 - `server/services/mcp-usage.service.js`：把 MCP 工具参数映射到统计、部门导出和反馈用例；
 - `server/validators/`：输入校验。
 
